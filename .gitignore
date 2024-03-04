@@ -1,0 +1,7 @@
+.env
+.python-version
+.vscode
+.streamlit
+*.pyc
+*.db
+OLD_Code
