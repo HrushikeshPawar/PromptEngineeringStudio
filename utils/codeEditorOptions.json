@@ -1,0 +1,10 @@
+{
+    "showLineNumbers": true,
+    "displayIndentGuides": true,
+    "highlightIndentGuides": true,
+    "wrapBehavioursEnabled": true,
+    "enableAutoIndent": true,
+    "readOnly": false,
+    "wrap": true,
+    "wrapMethod": "auto"
+}

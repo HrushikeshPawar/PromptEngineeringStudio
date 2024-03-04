@@ -1,0 +1,38 @@
+[
+    {
+        "name": "Copy",
+        "feather": "Copy",
+        "hasText": true,
+        "alwaysOn": true,
+        "commands": [
+            "copyAll",
+            [
+                "infoMessage",
+                {
+                    "text": "Copied to clipboard!",
+                    "timeout": 2500,
+                    "classToggle": "show"
+                }
+            ]
+        ],
+        "style": {
+            "top": "-0.25rem",
+            "right": "0.4rem"
+        }
+    },
+    {
+        "name": "Run",
+        "feather": "Play",
+        "primary": true,
+        "hasText": true,
+        "alwaysOn": true,
+        "showWithIcon": true,
+        "commands": [
+            "submit"
+        ],
+        "style": {
+            "bottom": "0.44rem",
+            "right": "0.4rem"
+        }
+    }
+]

@@ -1,0 +1,24 @@
+{
+    "hidden_pages": [
+        "create_new_project",
+        "show_project",
+        "update_project",
+        "create_new_prompt_from_scratch",
+        "show_prompt_versions",
+        "prompt_version_testing",
+        "create_new_prompt_version",
+        "create_new_prompt_from_current",
+        "edit_current_prompt_version",
+        "create_new_prompt_from_project"
+    ],
+    "llm_providers": [
+        "Google AI"
+    ],
+    "models": {
+        "Google AI": [
+            "gemini-1.0-pro",
+            "gemini-1.0-pro-001",
+            "gemini-1.0-pro-latest"
+        ]        
+    }
+}
