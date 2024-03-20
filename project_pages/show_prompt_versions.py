@@ -14,6 +14,9 @@ from dotenv import load_dotenv
 load_dotenv()
 ### IMPORTS END ###
 
+if 'config' not in st.session_state:
+    switch_page("home")
+
 # Setup the page
 st.set_page_config(layout='wide')
 
@@ -106,15 +109,15 @@ if st.session_state["SWITCH_TO_PROMPT_TESTING"]:
 st.divider()
 button_cols = st.columns(5)
 back_to_projects = button_cols[1].button(':leftwards_arrow_with_hook: Back to Projects', use_container_width=True)
-update_project = button_cols[3].button(':pencil2: Update Project', use_container_width=True)
+back_to_current_project = button_cols[3].button(':leftwards_arrow_with_hook: Back to Current Project', use_container_width=True)
 
 if back_to_projects:
     clean_session_state()
     switch_page("Projects")
 
-if update_project:
+if back_to_current_project:
     clean_session_state()
-    switch_page("update_project")
+    switch_page("show_project")
 
 st.divider()
 with st.expander('Session State'):

@@ -2,9 +2,8 @@ import os
 import sqlite3
 from hashlib import sha256
 import jinja2
-
+import pandas as pd
 import streamlit as st
-from streamlit.delta_generator import DeltaGenerator
 from st_pages import hide_pages
 from streamlit_extras.grid import grid
 from streamlit_extras.switch_page_button import switch_page
@@ -17,8 +16,8 @@ import vertexai.generative_models as vertexai_genai
 import sys
 
 sys.path.append('../utils')
-from utils.sql_helper import get_all_projects, get_prompt_details
-from utils.helper import load_codeEditor_buttons_config, load_codeEditor_config, load_codeEditor_infobar_config
+from utils.sql_helper import get_prompt_details, get_all_projects, get_all_prompts
+from utils.helper import load_codeEditor_buttons_config, load_codeEditor_config, load_codeEditor_infobar_config, get_input_variables
 from utils.llm_helper import setup_gemini_model, setup_palm2_model
 
 from dotenv import load_dotenv
@@ -30,6 +29,11 @@ if 'config' not in st.session_state:
 
 ## Setup the page
 st.set_page_config(layout='wide')
+
+# Set Connection to SQL Database and Create a cursor object
+connection = sqlite3.connect(os.getenv('DB_PATH'))
+cursor = connection.cursor()
+
 
 ## Local Variables
 if 'MODEL_HASH' not in st.session_state:
@@ -44,33 +48,38 @@ if 'INPUT_TOKEN_COUNT' not in st.session_state:
 if 'OUTPUT_TOKEN_COUNT' not in st.session_state:
     st.session_state['OUTPUT_TOKEN_COUNT'] = None
 
-if 'SWITCH_TO_EDIT_CURRENT_PROMPT_VERSION' not in st.session_state:
-    st.session_state['SWITCH_TO_EDIT_CURRENT_PROMPT_VERSION'] = False
-
-if 'SWITCH_TO_CREATE_NEW_PROMPT' not in st.session_state:
-    st.session_state['SWITCH_TO_CREATE_NEW_PROMPT'] = False
-
-if 'SWITCH_TO_CREATE_NEW_VERSION' not in st.session_state:
-    st.session_state['SWITCH_TO_CREATE_NEW_VERSION'] = False
-
 if 'CURRENT_PROMPT_INFO' in st.session_state:
     st.session_state.pop('CURRENT_PROMPT_INFO')
 
-# TODO: Need to later set this to raise error if any of these 2 variables are not set
-# if "CURRENT_PROJECT_ID" not in st.session_state:
-#     st.session_state["CURRENT_PROJECT_ID"] = "4cfe56d89e42d2234648994a7db4ebc6818aca963456a6c75f29d038d31a1b42"
-
-# if "current_prompt_id" not in st.session_state:
-#     st.session_state["current_prompt_id"] = "745f54c049ebd50014ef71bab82053d37123cbaeaf6c3a76f1fa680a2997408b"
-
-# NOTE: This is supposed to be present in the session_state from the previous page
-## Import Config
-# with open(os.getenv('CONFIG_FPATH'), 'r') as f:
-#     st.session_state['config'] = json.load(f)
-# NOTE: But still need to add in the None key to the models dictionary
 if None not in st.session_state['config']['models']:
     st.session_state['config']['models'][None] = []
 
+if 'INPUT_VARIABLES' not in st.session_state:
+    st.session_state['INPUT_VARIABLES'] = []
+
+if 'INPUT_VARIABLE_VALUES' not in st.session_state:
+    st.session_state['INPUT_VARIABLE_VALUES'] = {}
+
+if 'TEMPLATE_EDITOR_ID' not in st.session_state:
+    st.session_state['TEMPLATE_EDITOR_ID'] = None
+
+if 'ALL_PROJECTS' not in st.session_state:
+    st.session_state['ALL_PROJECTS'] = get_all_projects(cursor, output_type='df')
+    
+    st.session_state['PROJECT_ID_LOOKUP'] = {
+        st.session_state['ALL_PROJECTS']['name'][idx]: st.session_state['ALL_PROJECTS']['id'][idx] for idx in st.session_state['ALL_PROJECTS'].index
+    }
+
+if 'ALL_PROMPTS' not in st.session_state:
+    st.session_state['ALL_PROMPTS'] = get_all_prompts(cursor, output_type='df')
+    
+    st.session_state['PROMPT_ID_LOOKUP'] = {
+        (st.session_state['ALL_PROMPTS']['name'][idx], st.session_state['ALL_PROMPTS']['version'][idx]): st.session_state['ALL_PROMPTS']['id'][idx]
+        for idx in st.session_state['ALL_PROMPTS'].index
+    }
+
+if 'PROMPT_TEMPLATE' not in st.session_state:
+    st.session_state['PROMPT_TEMPLATE'] = ''
 
 ## Setup Required Variables
 # Set Connection to SQL Database and Create a cursor object
@@ -79,12 +88,6 @@ cursor = connection.cursor()
 
 # Hide Internal Pages
 hide_pages(st.session_state['config']['hidden_pages'])
-
-# Get the Current Project Details
-all_projects = get_all_projects(cursor)
-
-# Get the Prompt Details
-prompt_info = get_prompt_details(cursor, st.session_state['CURRENT_PROMPT_ID'])
 
 
 ## Helper Functions
@@ -95,9 +98,11 @@ def clean_session_state():
     st.session_state.pop('LLM_OUTPUT')
     st.session_state.pop('INPUT_TOKEN_COUNT')
     st.session_state.pop('OUTPUT_TOKEN_COUNT')
-    st.session_state.pop('SWITCH_TO_EDIT_CURRENT_PROMPT_VERSION')
-    st.session_state.pop('SWITCH_TO_CREATE_NEW_PROMPT')
-    st.session_state.pop('SWITCH_TO_CREATE_NEW_VERSION')
+    st.session_state.pop('ALL_PROJECTS')
+    st.session_state.pop('PROJECT_ID_LOOKUP')
+    st.session_state.pop('ALL_PROMPTS')
+    st.session_state.pop('PROMPT_ID_LOOKUP')
+    st.session_state.pop('PROMPT_TEMPLATE')
     st.session_state.pop('llm_providers')
     st.session_state.pop('model_selection')
     st.session_state.pop('temperature_slider')
@@ -107,9 +112,6 @@ def clean_session_state():
     st.session_state.pop('top_p')
     st.session_state.pop('top_k')
     st.session_state.pop('stop_sequence')
-    
-    if 'ALL_PROMPTS' in st.session_state:
-        st.session_state.pop('ALL_PROMPTS')
     
     if 'LLM' in st.session_state:
         st.session_state.pop('LLM')
@@ -172,12 +174,10 @@ def render_prompt() -> str:
     env = jinja2.Environment()
     
     # Get the Prompt Template
-    prompt_template = env.from_string(prompt_info['prompt_template'])
+    prompt_template = env.from_string(st.session_state['prompt_template_editor']['text'])
     
     # Render the Prompt
-    rendered_prompt = prompt_template.render(
-        **{var: st.session_state[f"{var}_input"] for var in prompt_info['input_variables']}
-    )
+    rendered_prompt = prompt_template.render(**st.session_state['INPUT_VARIABLE_VALUES'])
     
     return rendered_prompt
 
@@ -189,32 +189,31 @@ def run_model():
     with st.spinner('Running LLM Model...'):
             
         if st.session_state['llm_providers'] == 'GoogleAI' and 'gemini' in st.session_state['model_selection']:
-            gemini_model:google_genai.GenerativeModel = st.session_state['LLM']
+            llm:google_genai.GenerativeModel = st.session_state['LLM']
             
             print('Getting Input Token Count...')
             st.session_state['INPUT_TOKEN_COUNT'] = get_token_count(render_prompt())
             print('Running Model...')
-            st.session_state['LLM_OUTPUT'] = gemini_model.generate_content(input_text).text
+            st.session_state['LLM_OUTPUT'] = llm.generate_content(input_text).text
             print('Getting Outpu Token Count...')
             st.session_state['OUTPUT_TOKEN_COUNT'] = get_token_count(st.session_state['LLM_OUTPUT'])
         
         elif st.session_state['llm_providers'] == 'VertexAI' and 'gemini' in st.session_state['model_selection']:
-            gemini_vertexai_model:vertexai_genai.GenerativeModel = st.session_state['LLM']
+            llm:vertexai_genai.GenerativeModel = st.session_state['LLM']
             
             print('Getting LLM Output...')
-            response = gemini_vertexai_model.generate_content(input_text)
+            response = llm.generate_content(input_text)
             st.session_state['LLM_OUTPUT'] = response.text
             st.session_state['INPUT_TOKEN_COUNT'] = response.to_dict()['usage_metadata']['prompt_token_count']
             st.session_state['OUTPUT_TOKEN_COUNT'] = response.to_dict()['usage_metadata']['candidates_token_count']
         
         elif st.session_state['llm_providers'] == 'VertexAI' and 'text' in st.session_state['model_selection']:
-            palm2_model: vertexai_plam2.TextGenerationModel = st.session_state['LLM']
+            llm: vertexai_plam2.TextGenerationModel = st.session_state['LLM']
 
             print('Getting LLM Output...')
-            st.session_state['LLM_OUTPUT'] = palm2_model.predict(input_text, **st.session_state['PARAMETERS']).text
+            st.session_state['LLM_OUTPUT'] = llm.predict(input_text, **st.session_state['PARAMETERS']).text
             st.session_state['INPUT_TOKEN_COUNT'] = None
             st.session_state['OUTPUT_TOKEN_COUNT'] = None
-        
 
 # Get token count
 def get_token_count(text:str) -> int:
@@ -238,15 +237,35 @@ st.header('Projects', divider='rainbow')
 ## SUB-HEADERs
 subheader_cols = st.columns(2)
 with subheader_cols[0]:
-    st.subheader(all_projects[st.session_state['CURRENT_PROJECT_ID']]['name'])
-    st.write(all_projects[st.session_state['CURRENT_PROJECT_ID']]['description'])
+    st.subheader('Playground')
+    st.write("Play with your prompts and test them with different Large Language Models.")
 
 with subheader_cols[1]:
-    st.subheader(f'{prompt_info["name"]} `v{prompt_info["version"]}`')
-    st.write(prompt_info['description'] if prompt_info['description'] is not None else '')
-    st.markdown(f"**Input Variables** : {', '.join([f'`{var.strip()}`' for var in prompt_info['input_variables']])}" if prompt_info['input_variables'] is not None else '')
-    st.markdown(f"**Notes** :\n {prompt_info['notes']}" if prompt_info['notes'] is not None else '**Notes** :')
+    st.subheader('Load Prompt Template')
+    
+    subheader_cols = st.columns([.05, .3, .3, .3, .05])
+    
+    subheader_cols[1].selectbox('Project:', options=['None'] + st.session_state['ALL_PROJECTS']['name'].unique().tolist(), key='project_selectbox')
+    
+    prompt_options = [] if st.session_state['project_selectbox'] == 'None' else st.session_state['ALL_PROMPTS'][st.session_state['ALL_PROMPTS']['project_id'] == st.session_state['PROJECT_ID_LOOKUP'][st.session_state['project_selectbox']]]['name'].unique().tolist()
+    subheader_cols[2].selectbox('Prompt Name:', options=prompt_options, key='prompt_name_selectbox')
+    
+    version_options = [] if st.session_state['prompt_name_selectbox'] == 'None' else st.session_state['ALL_PROMPTS'][st.session_state['ALL_PROMPTS']['name'] == st.session_state['prompt_name_selectbox']]['version'].unique().tolist()
+    subheader_cols[3].selectbox('Version:', options=version_options, key='version_selectbox')
+    
+    subheader_button_cols = st.columns(3)
+    subheader_button_cols[1].button('Load', key='load_button', use_container_width=True, disabled=st.session_state['prompt_name_selectbox'] == 'None' or st.session_state['version_selectbox'] == 'None')
+    
+    if st.session_state['load_button']:
+        st.session_state['PROMPT_TEMPLATE'] = get_prompt_details(cursor, st.session_state['PROMPT_ID_LOOKUP'][(st.session_state['prompt_name_selectbox'], st.session_state['version_selectbox'])])['prompt_template']
+        st.rerun()
+    
 st.divider()
+
+def update_input_variable_dict():
+    for var in st.session_state['INPUT_VARIABLES']:
+        if f"{var}_input" in st.session_state:
+            st.session_state['INPUT_VARIABLE_VALUES'][var] = st.session_state[f"{var}_input"]
 
 
 ## Create or Load a Project
@@ -373,7 +392,7 @@ with main_columns[1]:
     st.subheader('Prompt Template')
     # The prompt template editor
     prompt_template_display_options = load_codeEditor_config()
-    prompt_template_display_options['readOnly'] = True
+    # prompt_template_display_options['readOnly'] = True
     
     prompt_template_display_settings_cols = st.columns(3)
     prompt_template_display_options['wrap'] = prompt_template_display_settings_cols[0].toggle('Wrap Lines', value=True, key='prompt_template_display_wrap_lines')
@@ -381,42 +400,27 @@ with main_columns[1]:
     prompt_template_display_options['maxLines'] = prompt_template_display_settings_cols[1].slider('Max Lines', min_value=10, max_value=100, value=10, key='prompt_template_display_max_lines')
     
     prompt_template_display_button_config = load_codeEditor_buttons_config()
-    prompt_template_display_button_config.pop(1)
+    # prompt_template_display_button_config.pop(1)
     
     prompt_template_display_info_bar_options = load_codeEditor_infobar_config()
     prompt_template_display_info_bar_options['info'][0]['name'] = "Prompt Template"
     prompt_template_editor = code_editor(
-        code=prompt_info['prompt_template'],
+        code=st.session_state['PROMPT_TEMPLATE'],
         options=prompt_template_display_options,
-        # height=[10, st.session_state['prompt_template_display_wrap_lines']],
         lang='text',
         info=prompt_template_display_info_bar_options,
         buttons=prompt_template_display_button_config,
         allow_reset=True,
-    )    
-    button_cols = st.columns(7)
-    
-    # Switches to `edit_prompt` on_click
-    button_cols[1].button(':green[Edit Prompt]', key='edit_prompt_button', use_container_width=True, on_click=turn_on_flag, args=("SWITCH_TO_EDIT_CURRENT_PROMPT_VERSION",))
-    
-    # Switches to `create_new_prompt_version` on_click
-    button_cols[3].button(':green[Create New Version]', key='create_new_version_button', use_container_width=True, on_click=turn_on_flag, args=("SWITCH_TO_CREATE_NEW_VERSION",))
-    
-    # Switches to `create_new_prompt_from_current` on_click
-    button_cols[5].button(':green[Create New Prompt]', key='create_new_prompt_button', use_container_width=True, on_click=turn_on_flag, args=("SWITCH_TO_CREATE_NEW_PROMPT",))
-
-# Switch pages on click
-if st.session_state['SWITCH_TO_EDIT_CURRENT_PROMPT_VERSION']:
-    clean_session_state()
-    switch_page("edit_current_prompt_version")
-
-if st.session_state['SWITCH_TO_CREATE_NEW_VERSION']:
-    clean_session_state()
-    switch_page("create_new_prompt_version")
-
-if st.session_state['SWITCH_TO_CREATE_NEW_PROMPT']:
-    clean_session_state()
-    switch_page("create_new_prompt_from_current")
+        key='prompt_template_editor',
+    )
+    if st.session_state['prompt_template_editor'] is not None:
+        if 'id' in st.session_state['prompt_template_editor']:
+            if st.session_state['TEMPLATE_EDITOR_ID'] != st.session_state['prompt_template_editor']['id']:
+                st.session_state['INPUT_VARIABLES'] = get_input_variables(st.session_state['prompt_template_editor']['text'])
+                st.session_state['TEMPLATE_EDITOR_ID'] = st.session_state['prompt_template_editor']['id']
+                
+                update_input_variable_dict()
+                st.rerun()
 
 st.divider()
 
@@ -427,7 +431,7 @@ example_cols = st.columns([.05, .4, .05, .55, .05])
 
 with example_cols[1]:
     # demo_list = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
-    demo_list = prompt_info['input_variables']
+    demo_list = st.session_state['INPUT_VARIABLES']
     
     if len(demo_list) > 3:
         quotient, remainder = divmod(len(demo_list), 3)
@@ -440,13 +444,15 @@ with example_cols[1]:
     else:
         example_input_grid = grid(len(demo_list))
     
-    for var in demo_list:#prompt_info['input_variables']:
+    for var in demo_list:
         with example_input_grid.container():
             st.text_area(
                 label=var,
                 key=f"{var}_input",
                 placeholder=f'Enter a value for `{var}`',
                 help=f'Enter a value for `{var}`',
+                on_change=update_input_variable_dict,
+                value=st.session_state['INPUT_VARIABLE_VALUES'][var] if var in st.session_state['INPUT_VARIABLE_VALUES'] else '',
             )
     # Button should be disabled if any of the input variables are empty or the model is not selected
     run_button_disabled = any([len(st.session_state[f"{var}_input"].strip()) == 0 for var in demo_list]) or (st.session_state['model_selection'] is None)
@@ -456,6 +462,7 @@ with example_cols[1]:
 with example_cols[3]:
     
     if st.session_state['run_button']:
+        update_input_variable_dict()
         with st.empty():
             run_model()
     
@@ -474,7 +481,7 @@ with example_cols[3]:
     button_config.pop(1)
     
     info_bar_options = load_codeEditor_infobar_config()
-    info_bar_options['info'][0]['name'] = f"LLM Output | {st.session_state['llm_providers'] if st.session_state['llm_providers'] else 'Select LLM Provider'} | {st.session_state['model_selection'] if st.session_state['model_selection'] else 'Select Model'}{' | ' + str(st.session_state['OUTPUT_TOKEN_COUNT']) + ' Tokens' if st.session_state['OUTPUT_TOKEN_COUNT'] else ''}"
+    info_bar_options['info'][0]['name'] = f"LLM Output | {st.session_state['model_selection'] if st.session_state['model_selection'] else 'Select Model'}{' | ' + str(st.session_state['OUTPUT_TOKEN_COUNT']) + ' Tokens' if st.session_state['OUTPUT_TOKEN_COUNT'] else ''}"
     code_editor(
         code=st.session_state['LLM_OUTPUT'],
         options=options,

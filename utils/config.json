@@ -9,16 +9,43 @@
         "create_new_prompt_version",
         "create_new_prompt_from_current",
         "edit_current_prompt_version",
-        "create_new_prompt_from_project"
+        "create_new_prompt_from_project",
+        "project_level_prompt_lineage"
     ],
     "llm_providers": [
-        "Google AI"
+        "GoogleAI",
+        "VertexAI"
     ],
     "models": {
-        "Google AI": [
+        "GoogleAI": [
             "gemini-1.0-pro",
             "gemini-1.0-pro-001",
             "gemini-1.0-pro-latest"
-        ]        
+        ],
+        "VertexAI": [
+            "gemini-1.0-pro-001",
+            "text-bison",
+            "text-bison@002",
+            "text-bison-32k",
+            "text-bison-32k@002",
+            "text-unicorn@001"
+        ]
+    },
+    "card_style": {
+        "card": {
+            "width": "180px",
+            "height": "180px",
+            "border-radius": "20px",
+            "background-color": "rgb(255, 255, 255)"
+            
+        },
+        "title" : {
+            "color" : "black",
+            "font-family": "roboto"
+        },
+        "text" : {
+            "color" : "black",
+            "font-family": "roboto"
+        }
     }
 }
