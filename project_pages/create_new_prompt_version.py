@@ -9,13 +9,16 @@ from time import sleep
 import sys
 sys.path.append('../utils')
 
-from utils.sql_helper import get_all_projects, create_prompt, get_prompt_details
+from utils.sql_helper import get_all_projects, create_prompt, get_prompt_details, get_all_prompt_versions
 from utils.helper import load_codeEditor_buttons_config, load_codeEditor_config, load_codeEditor_infobar_config, get_input_variables
 
 from dotenv import load_dotenv
 load_dotenv()
 
 ### IMPORTS END ###
+
+if 'config' not in st.session_state:
+    switch_page("home")
 
 ## Setup the page
 st.set_page_config(layout='wide')
@@ -40,6 +43,7 @@ if 'ALL_PROJECTS' not in st.session_state:
 
 if 'OLD_PROMPT_INFO' not in st.session_state:
     st.session_state['OLD_PROMPT_INFO'] = get_prompt_details(cursor, st.session_state['CURRENT_PROMPT_ID'])
+    st.session_state['NEW_VERSION'] = len(get_all_prompt_versions(cursor, st.session_state['OLD_PROMPT_INFO']['prompt_group_id'])) + 1
 
 
 ## Helper functions
@@ -85,7 +89,7 @@ with main_columns[3]:
     st.write('Version')
     st.number_input(
         label='Version',
-        value=st.session_state['OLD_PROMPT_INFO']['version'] + 1,
+        value=st.session_state['NEW_VERSION'],
         key='version',
         label_visibility='collapsed',
         disabled=True,
@@ -136,7 +140,12 @@ with main_columns[1]:
     button_config = load_codeEditor_buttons_config()
     info_bar_options = load_codeEditor_infobar_config()
     
-    info_bar_options['info'][0]['name'] = f"Prompt Template Editor | {st.session_state['ALL_PROJECTS'][st.session_state['CURRENT_PROJECT_ID']]['name']} | {st.session_state['OLD_PROMPT_INFO']['name']} | v{st.session_state['version']} |"
+    prompt_template_display_settings_cols = st.columns(3)
+    options['wrap'] = prompt_template_display_settings_cols[0].toggle('Wrap Lines', value=True, key='prompt_template_display_wrap_lines')
+    options['maxLines'] = 10
+    options['maxLines'] = prompt_template_display_settings_cols[1].slider('Max Lines', min_value=10, max_value=100, value=10, key='prompt_template_display_max_lines')
+
+    info_bar_options['info'][0]['name'] = f"Prompt Template Editor | {st.session_state['OLD_PROMPT_INFO']['name']} | v{st.session_state['version']} |"
 
     st.warning('Once done with editing the template, click on the "Run" button on lower right corner of editor before "Create" button', icon='⚠️')
     st.info('Use :blue[Double Curly Braces] to insert input variables in the template - {{ variable }}', icon='ℹ️')

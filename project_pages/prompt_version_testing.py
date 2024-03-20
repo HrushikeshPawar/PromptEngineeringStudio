@@ -4,23 +4,29 @@ from hashlib import sha256
 import jinja2
 
 import streamlit as st
+from streamlit.delta_generator import DeltaGenerator
 from st_pages import hide_pages
 from streamlit_extras.grid import grid
 from streamlit_extras.switch_page_button import switch_page
 from code_editor import code_editor
 
 import google.generativeai as google_genai
+import vertexai.language_models as vertexai_plam2
+import vertexai.generative_models as vertexai_genai
 
 import sys
 
 sys.path.append('../utils')
 from utils.sql_helper import get_all_projects, get_prompt_details
 from utils.helper import load_codeEditor_buttons_config, load_codeEditor_config, load_codeEditor_infobar_config
-from utils.llm_helper import setup_gemini_model
+from utils.llm_helper import setup_gemini_model, setup_palm2_model
 
 from dotenv import load_dotenv
 load_dotenv()
 ### IMPORTS END ###
+
+if 'config' not in st.session_state:
+    switch_page("home")
 
 ## Setup the page
 st.set_page_config(layout='wide')
@@ -128,9 +134,29 @@ def calculate_model_hash() -> str:
 # Load the Model
 def load_model():
     
-    if st.session_state['llm_providers'] == 'Google AI':
+    if st.session_state['llm_providers'] == 'GoogleAI':
+        st.session_state['LLM'] = setup_gemini_model(
+            model_name=st.session_state['model_selection'],
+            temperature=st.session_state['temperature_slider'],
+            max_output_tokens=st.session_state['max_output_tokens_slider'],
+            top_p=st.session_state['top_p'],
+            top_k=st.session_state['top_k'],
+            # stop_sequence=st.session_state['stop_sequence']
+            is_vertexai_model=False,
+        )
+    elif st.session_state['llm_providers'] == 'VertexAI':
         if 'gemini' in st.session_state['model_selection']:
             st.session_state['LLM'] = setup_gemini_model(
+                model_name=st.session_state['model_selection'],
+                temperature=st.session_state['temperature_slider'],
+                max_output_tokens=st.session_state['max_output_tokens_slider'],
+                top_p=st.session_state['top_p'],
+                top_k=st.session_state['top_k'],
+                # stop_sequence=st.session_state['stop_sequence']
+                is_vertexai_model=True,
+            )
+        else:
+            st.session_state['LLM'], st.session_state['PARAMETERS'] = setup_palm2_model(
                 model_name=st.session_state['model_selection'],
                 temperature=st.session_state['temperature_slider'],
                 max_output_tokens=st.session_state['max_output_tokens_slider'],
@@ -156,16 +182,39 @@ def render_prompt() -> str:
     return rendered_prompt
 
 # Run Model
-def run_model() -> str:
-    
+def run_model():
     # Get the Input Text
     input_text = render_prompt()
     
-    if 'gemini' in st.session_state['model_selection']:
-        llm:google_genai.GenerativeModel = st.session_state['LLM']
-        response = llm.generate_content(input_text)
+    with st.spinner('Running LLM Model...'):
+            
+        if st.session_state['llm_providers'] == 'GoogleAI' and 'gemini' in st.session_state['model_selection']:
+            gemini_model:google_genai.GenerativeModel = st.session_state['LLM']
+            
+            print('Getting Input Token Count...')
+            st.session_state['INPUT_TOKEN_COUNT'] = get_token_count(render_prompt())
+            print('Running Model...')
+            st.session_state['LLM_OUTPUT'] = gemini_model.generate_content(input_text).text
+            print('Getting Outpu Token Count...')
+            st.session_state['OUTPUT_TOKEN_COUNT'] = get_token_count(st.session_state['LLM_OUTPUT'])
         
-        return response.text
+        elif st.session_state['llm_providers'] == 'VertexAI' and 'gemini' in st.session_state['model_selection']:
+            gemini_vertexai_model:vertexai_genai.GenerativeModel = st.session_state['LLM']
+            
+            print('Getting LLM Output...')
+            response = gemini_vertexai_model.generate_content(input_text)
+            st.session_state['LLM_OUTPUT'] = response.text
+            st.session_state['INPUT_TOKEN_COUNT'] = response.to_dict()['usage_metadata']['prompt_token_count']
+            st.session_state['OUTPUT_TOKEN_COUNT'] = response.to_dict()['usage_metadata']['candidates_token_count']
+        
+        elif st.session_state['llm_providers'] == 'VertexAI' and 'text' in st.session_state['model_selection']:
+            palm2_model: vertexai_plam2.TextGenerationModel = st.session_state['LLM']
+
+            print('Getting LLM Output...')
+            st.session_state['LLM_OUTPUT'] = palm2_model.predict(input_text, **st.session_state['PARAMETERS']).text
+            st.session_state['INPUT_TOKEN_COUNT'] = None
+            st.session_state['OUTPUT_TOKEN_COUNT'] = None
+        
 
 # Get token count
 def get_token_count(text:str) -> int:
@@ -255,6 +304,8 @@ with main_columns[3]:
             label='Max Output Tokens',
             min_value=1,
             max_value=2048,
+            step=1,
+            value=1024,
             key='max_output_tokens_slider',
             help='Controls the number of tokens to generate.',
             on_change=copy_widget_value,
@@ -265,6 +316,8 @@ with main_columns[3]:
             label='Max Output Tokens',
             min_value=1,
             max_value=2048,
+            step=1,
+            value=1024,
             key='max_output_tokens_number_input',
             on_change=copy_widget_value,
             args=('max_output_tokens_number_input', 'max_output_tokens_slider'),
@@ -370,7 +423,7 @@ st.divider()
 
 ## Examples
 st.subheader('Examples')
-example_cols = st.columns([.1, .4, .1, .4, .1])
+example_cols = st.columns([.05, .4, .05, .55, .05])
 
 with example_cols[1]:
     # demo_list = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
@@ -403,13 +456,8 @@ with example_cols[1]:
 with example_cols[3]:
     
     if st.session_state['run_button']:
-        with st.spinner('Running LLM Model...'):
-            print('Getting Input Token Count...')
-            st.session_state['INPUT_TOKEN_COUNT'] = get_token_count(render_prompt())
-            print('Running Model...')
-            st.session_state['LLM_OUTPUT'] = run_model()
-            print('Getting Outpu Token Count...')
-            st.session_state['OUTPUT_TOKEN_COUNT'] = get_token_count(st.session_state['LLM_OUTPUT'])
+        with st.empty():
+            run_model()
     
     if not run_button_disabled:
         input_text = render_prompt()
@@ -426,7 +474,7 @@ with example_cols[3]:
     button_config.pop(1)
     
     info_bar_options = load_codeEditor_infobar_config()
-    info_bar_options['info'][0]['name'] = f"LLM Output | {st.session_state['model_selection'] if st.session_state['model_selection'] else 'Select Model'}{' | ' + str(st.session_state['OUTPUT_TOKEN_COUNT']) + ' Tokens' if st.session_state['OUTPUT_TOKEN_COUNT'] else ''}"
+    info_bar_options['info'][0]['name'] = f"LLM Output | {st.session_state['llm_providers'] if st.session_state['llm_providers'] else 'Select LLM Provider'} | {st.session_state['model_selection'] if st.session_state['model_selection'] else 'Select Model'}{' | ' + str(st.session_state['OUTPUT_TOKEN_COUNT']) + ' Tokens' if st.session_state['OUTPUT_TOKEN_COUNT'] else ''}"
     code_editor(
         code=st.session_state['LLM_OUTPUT'],
         options=options,

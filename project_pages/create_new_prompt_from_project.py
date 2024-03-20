@@ -18,6 +18,9 @@ load_dotenv()
 
 ### IMPORTS END ###
 
+if 'config' not in st.session_state:
+    switch_page("home")
+
 ## Setup the page
 st.set_page_config(layout='wide')
 

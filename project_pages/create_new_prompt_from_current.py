@@ -17,6 +17,9 @@ load_dotenv()
 
 ### IMPORTS END ###
 
+if 'config' not in st.session_state:
+    switch_page("home")
+
 ## Setup the page
 st.set_page_config(layout='wide')
 
@@ -99,7 +102,7 @@ with main_columns[3]:
 
     # Prompt Description
     st.write('Description')
-    st.text_input(
+    st.text_area(
         label='Description',
         key='description',
         placeholder='A short description about the prompt',
@@ -151,7 +154,12 @@ with main_columns[1]:
     button_config = load_codeEditor_buttons_config()
     info_bar_options = load_codeEditor_infobar_config()
     
-    info_bar_options['info'][0]['name'] = f"Prompt Template Editor | {st.session_state['ALL_PROJECTS'][st.session_state['CURRENT_PROJECT_ID']]['name']} | {st.session_state['prompt_name'] if len(st.session_state['prompt_name'].strip()) > 0 else 'Project Name'} | v{st.session_state['version']} |"
+    prompt_template_display_settings_cols = st.columns(3)
+    options['wrap'] = prompt_template_display_settings_cols[0].toggle('Wrap Lines', value=True, key='prompt_template_display_wrap_lines')
+    options['maxLines'] = 10
+    options['maxLines'] = prompt_template_display_settings_cols[1].slider('Max Lines', min_value=10, max_value=100, value=10, key='prompt_template_display_max_lines')
+    
+    info_bar_options['info'][0]['name'] = f"Prompt Template Editor | {st.session_state['prompt_name'] if len(st.session_state['prompt_name'].strip()) > 0 else 'Prompt Name'} | v{st.session_state['version']} |"
 
     st.warning('Once done with editing the template, click on the "Run" button on lower right corner of editor before "Create" button', icon='⚠️')
     st.info('Use :blue[Double Curly Braces] to insert input variables in the template - {{ variable }}', icon='ℹ️')
