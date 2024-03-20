@@ -13,6 +13,9 @@ from utils.sql_helper import create_project, ProjectAlreadyExistsError
 from dotenv import load_dotenv
 load_dotenv()
 
+if 'config' not in st.session_state:
+    switch_page("home")
+
 # Set Connection to SQL Database and Create a cursor object
 connection = sqlite3.connect(os.getenv('DB_PATH'))
 cursor = connection.cursor()

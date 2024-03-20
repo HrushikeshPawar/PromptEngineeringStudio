@@ -15,6 +15,9 @@ from dotenv import load_dotenv
 load_dotenv()
 ### IMPORTS END ###
 
+if 'config' not in st.session_state:
+    switch_page("home")
+
 # Setup the page
 st.set_page_config(layout='centered')
 # Set Connection to SQL Database and Create a cursor object
@@ -44,6 +47,7 @@ st.write(all_projects[st.session_state['CURRENT_PROJECT_ID']]['description'])
 st.divider()
 
 all_prompts = get_all_prompt_groups(cursor, st.session_state['CURRENT_PROJECT_ID'])
+all_prompts = {k: v for k, v in sorted(all_prompts.items(), key=lambda item: item[1]['name'])}
 COL_NUM = 3
 if len(all_prompts) == 0:
     rows = 1
@@ -102,9 +106,10 @@ for idx, prompt_group_id in enumerate(all_prompts):
                 description = all_prompts[prompt_group_id]["description"][:30] + "..."
         else:
             description = ""
+
         cards.append(card(
             title=all_prompts[prompt_group_id]['name'],
-            text=[all_prompts[prompt_group_id]['description'] if all_prompts[prompt_group_id]['description'] else ""],
+            text=[description],
             styles=card_styles,
             key=f"prompt_card_{idx}"
         ))
@@ -129,7 +134,8 @@ if True in cards:
 st.divider()
 button_cols = st.columns(3)
 back_to_projects = button_cols[0].button(':leftwards_arrow_with_hook: Back to Projects', use_container_width=True)
-update_project = button_cols[2].button(':pencil2: Update Project', use_container_width=True)
+update_project = button_cols[1].button(':pencil2: Update Project', use_container_width=True)
+lineage_graph = button_cols[2].button(':bar_chart: Lineage Graph', use_container_width=True)
 
 if back_to_projects:
     clean_session_state()
@@ -138,6 +144,10 @@ if back_to_projects:
 if update_project:
     clean_session_state()
     switch_page("update_project")
+
+if lineage_graph:
+    clean_session_state()
+    switch_page("project_level_prompt_lineage")
 
 st.divider()
 with st.expander('Session State'):
