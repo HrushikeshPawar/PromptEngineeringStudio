@@ -43,19 +43,25 @@ def create_project(project_name:str, connection:sqlite3.Connection, cursor:sqlit
 
 
 # Get all projects
-def get_all_projects(cursor: sqlite3.Cursor) -> dict:
+def get_all_projects(cursor: sqlite3.Cursor, output_type:str='dict') -> dict:
     cursor.execute("SELECT * FROM projects")
     projects = cursor.fetchall()
-    project_dict = {}
-    for project in projects:
-        project_id, project_name, project_description, created_at, updated_at = project
-        project_dict[project_id] = {
-            "name": project_name,
-            "description": project_description,
-            "created_at": created_at,
-            "updated_at": updated_at
-        }
-    return project_dict
+    
+    if output_type == "dict":
+        project_dict = {}
+        for project in projects:
+            project_id, project_name, project_description, created_at, updated_at = project
+            project_dict[project_id] = {
+                "name": project_name,
+                "description": project_description,
+                "created_at": created_at,
+                "updated_at": updated_at
+            }
+        return project_dict
+
+    if output_type == "df":
+        project_df = pd.DataFrame(projects, columns = ['id', 'name', 'description', 'created_at', 'updated_at'])
+        return project_df
 
 
 # Update Project Details
@@ -135,7 +141,7 @@ def update_prompt(
 
 
 # Get all prompts for a project or all prompts
-def get_all_prompts(cursor: sqlite3.Cursor, project_id: Optional[str] = None) -> dict:
+def get_all_prompts(cursor: sqlite3.Cursor, project_id: Optional[str] = None, output_type:str='dict') -> dict:
     
     # Prompt Table Schema
     # id TEXT PRIMARY KEY | prompt_group_id TEXT NOT NULL | project_id TEXT NOT NULL | description TEXT | parent_prompt_id TEXT | name TEXT NOT NULL | version INTEGER NOT NULL |
@@ -158,26 +164,32 @@ def get_all_prompts(cursor: sqlite3.Cursor, project_id: Optional[str] = None) ->
     # Fetch the data
     prompts = cursor.fetchall()
     
-    # Convert to dictionary
-    prompt_dict = {}
-    for prompt in prompts:
-        id, prompt_group_id, project_id, parent_prompt_id, name, description, version, prompt_template, input_variables, favourite, notes, created_at, updated_at = prompt
-        prompt_dict[id] = {
-            "prompt_group_id": prompt_group_id,
-            "project_id": project_id,
-            "parent_prompt_id": parent_prompt_id,
-            "name": name,
-            "description": description,
-            "version": version,
-            "prompt_template": prompt_template,
-            "input_variables": input_variables,
-            "favourite": favourite,
-            "notes": notes,
-            "created_at": created_at,
-            "updated_at": updated_at
+    if output_type == 'dict':
+        # Convert to dictionary
+        prompt_dict = {}
+        for prompt in prompts:
+            id, prompt_group_id, project_id, parent_prompt_id, name, description, version, prompt_template, input_variables, favourite, notes, created_at, updated_at = prompt
+            prompt_dict[id] = {
+                "prompt_group_id": prompt_group_id,
+                "project_id": project_id,
+                "parent_prompt_id": parent_prompt_id,
+                "name": name,
+                "description": description,
+                "version": version,
+                "prompt_template": prompt_template,
+                "input_variables": input_variables,
+                "favourite": favourite,
+                "notes": notes,
+                "created_at": created_at,
+                "updated_at": updated_at
         }
         
-    return prompt_dict
+        return prompt_dict
+
+    if output_type == 'df':
+        # Convert to dataframe
+        prompt_df = pd.DataFrame(prompts, columns = ['id', 'prompt_group_id', 'project_id', 'parent_prompt_id', 'name', 'description', 'version', 'prompt_template', 'input_variables', 'favourite', 'notes', 'created_at', 'updated_at'])
+        return prompt_df
 
 
 # Get all prompt groups for a project or all prompt groups
